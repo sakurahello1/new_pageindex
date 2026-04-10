@@ -472,10 +472,19 @@ def _build_structure_from_headings(headings: list[dict[str, Any]], page_count: i
     for idx, item in enumerate(ordered):
         start_page = max(1, int(item.get("page") or 1))
         end_page = page_count
-        for next_item in ordered[idx + 1 :]:
+        boundary_idx = len(ordered)
+        for next_idx, next_item in enumerate(ordered[idx + 1 :], start=idx + 1):
             if int(next_item.get("level", 1)) <= int(item.get("level", 1)):
                 end_page = max(start_page, int(next_item.get("page") or start_page) - 1)
+                boundary_idx = next_idx
                 break
+        child_pages = [
+            int(child.get("page") or start_page)
+            for child in ordered[idx + 1 : boundary_idx]
+            if int(child.get("level", 1)) > int(item.get("level", 1))
+        ]
+        if child_pages:
+            end_page = max(end_page, max(child_pages))
         nodes.append(
             {
                 "node_id": f"{idx + 1:04d}",
