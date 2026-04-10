@@ -195,13 +195,13 @@ def _resolve_source(source: str, tmp_dir: Path) -> Path:
     parsed = urlparse(source)
     if parsed.scheme in {"http", "https"}:
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        filename = Path(parsed.path).name or "downloaded.pdf"
-        suffix = Path(filename).suffix.lower() or ".pdf"
+        response = requests.get(source, timeout=120)
+        response.raise_for_status()
+        filename = _filename_from_url(parsed.path, response.headers.get("Content-Type", ""))
+        suffix = Path(filename).suffix.lower()
         if suffix not in SUPPORTED_EXTENSIONS:
             raise SystemExit(f"Unsupported URL file extension: {suffix}")
         target = tmp_dir / filename
-        response = requests.get(source, timeout=120)
-        response.raise_for_status()
         target.write_bytes(response.content)
         return target
 
@@ -211,6 +211,19 @@ def _resolve_source(source: str, tmp_dir: Path) -> Path:
     if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
         raise SystemExit(f"Unsupported document format: {path.suffix}")
     return path
+
+
+def _filename_from_url(url_path: str, content_type: str) -> str:
+    raw_name = Path(url_path).name or "downloaded"
+    raw_suffix = Path(raw_name).suffix.lower()
+    if re.match(r"^\d{4}\.\d{4,5}(?:v\d+)?$", raw_name, re.IGNORECASE):
+        return f"{raw_name}.pdf"
+    if raw_suffix in SUPPORTED_EXTENSIONS:
+        return raw_name
+    if "application/pdf" in content_type.lower():
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name).strip("._") or "downloaded"
+        return f"{safe_name}.pdf"
+    return raw_name
 
 
 def _store_source(kb: KnowledgeBase, doc_name: str, source_path: Path) -> Path:
