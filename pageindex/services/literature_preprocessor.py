@@ -17,11 +17,14 @@ PATENT_FILE_RE = re.compile(r"^(?:CN|US|WO|EP|JP|KR)\d", re.IGNORECASE)
 ARXIV_FILE_RE = re.compile(r"\b\d{4}\.\d{4,5}(?:v\d+)?\b", re.IGNORECASE)
 PATENT_TEXT_RE = re.compile(r"(?:专利|patent|申请号|publication\s+number|公开号|公开日|授权公告号)", re.IGNORECASE)
 NON_PAPER_TEXT_RE = re.compile(r"(?:申报书|可行性研究|技术方案|立项|结题|中期报告|实施方案)", re.IGNORECASE)
-PATENT_TITLE_MARKER_RE = re.compile(r"^\(\s*54\s*\)\s*(?:发明名称|名称)\s*$")
-PATENT_DRAWINGS_MARKER_RE = re.compile(r"说\s*明\s*书\s*附\s*图")
-PATENT_ABSTRACT_MARKER_RE = re.compile(r"\(\s*57\s*\)\s*摘要|摘\s*要")
-PATENT_CLAIMS_MARKER_RE = re.compile(r"权\s*利\s*要\s*求\s*书")
-PATENT_INFO_MARKER_RE = re.compile(r"(?:中华人民共和国国家知识产权局|申请号|专利权人|发明人|授权公告号)")
+PATENT_TITLE_MARKER_RE = re.compile(r"^\(\s*54\s*\)\s*(?:发明名称|名称|title)\s*$", re.IGNORECASE)
+PATENT_DRAWINGS_MARKER_RE = re.compile(r"说\s*明\s*书\s*附\s*图|brief\s+description\s+of\s+the\s+drawings|drawings", re.IGNORECASE)
+PATENT_ABSTRACT_MARKER_RE = re.compile(r"\(\s*57\s*\)\s*摘要|摘\s*要|\babstract\b", re.IGNORECASE)
+PATENT_CLAIMS_MARKER_RE = re.compile(r"权\s*利\s*要\s*求\s*书|\bclaims?\b", re.IGNORECASE)
+PATENT_INFO_MARKER_RE = re.compile(
+    r"(?:中华人民共和国国家知识产权局|申请号|专利权人|发明人|授权公告号|publication\s+number|application\s+number|inventors?|assignee)",
+    re.IGNORECASE,
+)
 PATENT_HEADINGS = [
     "专利信息",
     "摘要",
@@ -32,6 +35,15 @@ PATENT_HEADINGS = [
     "附图说明",
     "具体实施方式",
     "说明书附图",
+    "Patent Information",
+    "Abstract",
+    "Claims",
+    "Field",
+    "Background",
+    "Summary",
+    "Brief Description of the Drawings",
+    "Detailed Description",
+    "Drawings",
 ]
 PATENT_HEADING_RE = re.compile(rf"^(?:{'|'.join(map(re.escape, PATENT_HEADINGS))})\s*$")
 PAPER_TEXT_SIGNALS = [
@@ -170,11 +182,11 @@ def _prepare_patent_structure_from_pdf(pdf_path: Path) -> dict[str, Any] | None:
             normalized_page_text = re.sub(r"\s+", "", page_text or "")
             if PATENT_INFO_MARKER_RE.search(page_text or "") and page_no == 1:
                 info_pages.append(page_no)
-            if PATENT_ABSTRACT_MARKER_RE.search(normalized_page_text) and page_no <= 2:
+            if (PATENT_ABSTRACT_MARKER_RE.search(normalized_page_text) or PATENT_ABSTRACT_MARKER_RE.search(page_text or "")) and page_no <= 2:
                 abstract_pages.append(page_no)
-            if PATENT_CLAIMS_MARKER_RE.search(normalized_page_text):
+            if PATENT_CLAIMS_MARKER_RE.search(normalized_page_text) or PATENT_CLAIMS_MARKER_RE.search(page_text or ""):
                 claims_pages.append(page_no)
-            if PATENT_DRAWINGS_MARKER_RE.search(normalized_page_text):
+            if PATENT_DRAWINGS_MARKER_RE.search(normalized_page_text) or PATENT_DRAWINGS_MARKER_RE.search(page_text or ""):
                 drawings_pages.append(page_no)
 
             lines = [_normalize_title(line) for line in page_text.splitlines()]
@@ -196,17 +208,17 @@ def _prepare_patent_structure_from_pdf(pdf_path: Path) -> dict[str, Any] | None:
                 outline.append({"title": line, "level": 1, "page": page_no, "line_idx": line_idx})
                 seen_titles.add(line)
 
-    _append_page_bucket(outline, seen_titles, "专利信息", info_pages, line_idx=-30)
-    _append_page_bucket(outline, seen_titles, "摘要", abstract_pages, line_idx=-20)
-    _append_page_bucket(outline, seen_titles, "权利要求书", claims_pages, line_idx=-10)
-    if drawings_pages and "说明书附图" not in seen_titles:
+    _append_page_bucket(outline, seen_titles, "专利信息", info_pages, line_idx=-30, aliases={"Patent Information"})
+    _append_page_bucket(outline, seen_titles, "摘要", abstract_pages, line_idx=-20, aliases={"Abstract"})
+    _append_page_bucket(outline, seen_titles, "权利要求书", claims_pages, line_idx=-10, aliases={"Claims"})
+    if drawings_pages and "说明书附图" not in seen_titles and not ({"Drawings", "Brief Description of the Drawings"} & seen_titles):
         outline.append({"title": "说明书附图", "level": 1, "page": min(drawings_pages), "line_idx": 10**6})
 
     if not outline:
         return None
 
     outline.sort(key=lambda item: (item["page"], item["line_idx"]))
-    normalized_outline = [{"title": item["title"], "level": 1, "page": item["page"]} for item in outline]
+    normalized_outline = [{"title": item["title"], "level": 1, "page": item["page"], "line_idx": item["line_idx"]} for item in outline]
     structure = _build_structure_from_headings(normalized_outline, _get_pdf_page_count(pdf_path))
     return {"doc_title": doc_title or pdf_path.name, "outline": normalized_outline, "structure": structure}
 
@@ -220,11 +232,21 @@ def _extract_patent_title_from_lines(lines: list[str]) -> str:
     for line in lines:
         if line.startswith("一种"):
             return line
+        if line.lower().startswith(("system", "method", "apparatus", "composition")):
+            return line
     return ""
 
 
-def _append_page_bucket(outline: list[dict[str, Any]], seen_titles: set[str], title: str, pages: list[int], *, line_idx: int) -> None:
-    if pages and title not in seen_titles:
+def _append_page_bucket(
+    outline: list[dict[str, Any]],
+    seen_titles: set[str],
+    title: str,
+    pages: list[int],
+    *,
+    line_idx: int,
+    aliases: set[str] | None = None,
+) -> None:
+    if pages and title not in seen_titles and not ((aliases or set()) & seen_titles):
         outline.append({"title": title, "level": 1, "page": min(pages), "line_idx": line_idx})
         seen_titles.add(title)
 
@@ -438,7 +460,14 @@ def _extract_document_title(extracted_dir: Path) -> str | None:
 
 
 def _build_structure_from_headings(headings: list[dict[str, Any]], page_count: int) -> list[dict[str, Any]]:
-    ordered = sorted(headings, key=lambda item: (int(item.get("page", 1)), int(item.get("level", 1)), str(item.get("title", ""))))
+    indexed = list(enumerate(headings))
+    ordered = [
+        item
+        for _, item in sorted(
+            indexed,
+            key=lambda pair: (int(pair[1].get("page", 1)), int(pair[1].get("line_idx", pair[0])), pair[0]),
+        )
+    ]
     nodes: list[dict[str, Any]] = []
     for idx, item in enumerate(ordered):
         start_page = max(1, int(item.get("page") or 1))

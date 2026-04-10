@@ -1,12 +1,20 @@
-# PageIndex Minimal
+# PageIndex DeepResearch CLI
 
-This directory keeps only the local PageIndex core needed for:
+This repository keeps the PageIndex tree-generation core and adds a small
+knowledge-base CLI for DeepResearch/Codex workflows.
 
-- generating a tree structure from a PDF or Markdown file
-- detecting paper/patent PDFs and using literature-specific preprocessing when possible
-- reading source text back through a generated tree node or page range
+It is intentionally scoped to:
 
-Removed from this local copy: cookbooks, tutorials, tests, generated logs/results, old runtime workspaces, cross-document search, research-outline agents, semantic store code, and related caches.
+- initialize a local knowledge base
+- add a named document from a local path or PDF URL
+- support PDF, Markdown, text, DOCX, and DOC inputs
+- generate a PageIndex tree for each document
+- list documents, print a document tree, and read one or more document parts
+- handle paper and patent PDFs with a special preprocessing path before falling
+  back to regular PageIndex generation
+
+Cross-document search, research agents, old workspaces, generated examples,
+caches, and test artifacts are not part of this trimmed project.
 
 ## Install
 
@@ -16,22 +24,24 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Tree generation reads the default options from:
+PageIndex defaults are read from:
 
 ```text
 pageindex/config.yaml
 ```
 
-The model API credentials are read from environment variables. You can create a local `.env` file from `.env.example`:
+LLM credentials are read from environment variables or a local `.env` file:
 
 ```bash
 CHATGPT_API_KEY=your_api_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-`OPENAI_BASE_URL` is optional and can point to any OpenAI-compatible endpoint, for example OpenRouter or a local Ollama-compatible server.
+`OPENAI_BASE_URL` is optional and can point to an OpenAI-compatible endpoint.
+`OPENROUTER_API_KEY` and `OPENROUTER_BASE_URL` are also accepted by the ingest
+wrapper and mapped to the PageIndex environment variables when present.
 
-Literature preprocessing can also use MinerU when a paper PDF is detected. MinerU credentials are read from environment variables:
+The paper preprocessing path can use MinerU when credentials are available:
 
 ```bash
 MINERU_API_TOKEN=your_mineru_token_here
@@ -39,20 +49,58 @@ MINERU_API_BASE=https://mineru.net/api/v4
 MINERU_OUTPUT_DIR=/path/to/mineru_outputs
 ```
 
-`MINERU_OUTPUT_DIR` is optional. If an extracted MinerU cache already exists there, it will be reused.
+If `MINERU_OUTPUT_DIR` already contains extracted MinerU output, it is reused.
+Chinese patent PDFs use rule-based section detection first.
 
-## Generate A Tree
+## Knowledge-Base CLI
 
-For PDF:
+Initialize a knowledge base:
 
 ```bash
-python run_pageindex.py --pdf_path /path/to/document.pdf --model gpt-4o-2024-11-20
+python deepresearch_kb.py --kb ./kb init
 ```
 
-For Markdown:
+Add a named document:
 
 ```bash
-python run_pageindex.py --md_path /path/to/document.md --model gpt-4o-2024-11-20
+python deepresearch_kb.py --kb ./kb add --name paper1 --source ./paper.pdf --model gpt-4o-2024-11-20
+```
+
+Add from a PDF URL:
+
+```bash
+python deepresearch_kb.py --kb ./kb add --name patent1 --source https://example.com/patent.pdf
+```
+
+List documents:
+
+```bash
+python deepresearch_kb.py --kb ./kb list
+```
+
+Print one document tree:
+
+```bash
+python deepresearch_kb.py --kb ./kb tree --name paper1
+```
+
+Read one or more parts:
+
+```bash
+python deepresearch_kb.py --kb ./kb read --name paper1 --node 0001 --node 0002
+python deepresearch_kb.py --kb ./kb read --name paper1 --range 3-5 --range 12
+```
+
+For PDF inputs, ranges are page numbers. For Markdown/TXT/Word inputs, ranges
+refer to line numbers in the normalized Markdown content.
+
+## Direct PageIndex Usage
+
+You can still call the PageIndex tree generator directly:
+
+```bash
+python run_pageindex.py --pdf_path ./document.pdf --model gpt-4o-2024-11-20
+python run_pageindex.py --md_path ./document.md --model gpt-4o-2024-11-20
 ```
 
 Output is written to:
@@ -60,29 +108,3 @@ Output is written to:
 ```text
 results/<document_name>_structure.json
 ```
-
-## Read Source Text Through A Tree
-
-Read one tree node:
-
-```bash
-python run_read_tree.py --source_path /path/to/document.pdf --structure_path results/document_structure.json --node_id 0006
-```
-
-Read a PDF page range:
-
-```bash
-python run_read_tree.py --source_path /path/to/document.pdf --structure_path results/document_structure.json --pages 3-5
-```
-
-For Markdown sources, node reading works the same way; direct ranges use line indexes from the tree.
-
-## Literature Ingest
-
-Use `run_ingest.py` when you want automatic paper/patent detection before falling back to PageIndex tree generation:
-
-```bash
-python run_ingest.py /path/to/papers_or_patents --workspace workspace --model gpt-4o-2024-11-20
-```
-
-Detected Chinese patent PDFs use rule-based outline extraction for sections such as `专利信息`, `摘要`, `权利要求书`, `技术领域`, `背景技术`, `发明内容`, `附图说明`, and `具体实施方式`. Detected paper PDFs try MinerU heading extraction first, then fall back to regular PageIndex generation.
