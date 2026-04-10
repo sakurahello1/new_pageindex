@@ -19,6 +19,14 @@ Initialize a knowledge base:
 python deepresearch_kb.py --kb ./kb init
 ```
 
+Initialize a named knowledge base under a parent directory:
+
+```bash
+python deepresearch_kb.py --kb ./knowledge_bases init --name papers
+```
+
+This creates `./knowledge_bases/papers`; use `--kb ./knowledge_bases/papers` for later commands.
+
 Add a document. Always pass a stable `--name`; later commands use it instead of paths:
 
 ```bash

@@ -50,10 +50,11 @@ def main() -> None:
         sys.stderr.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(description="DeepResearch PageIndex knowledge-base CLI.")
-    parser.add_argument("--kb", default="knowledge_base", help="Knowledge-base directory.")
+    parser.add_argument("--kb", default="knowledge_base", help="Knowledge-base directory, or parent directory for init --name.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("init", help="Initialize a knowledge base.")
+    init_parser = subparsers.add_parser("init", help="Initialize a knowledge base.")
+    init_parser.add_argument("--name", default=None, help="Knowledge-base name. Creates it under --kb and stores the name in registry.json.")
 
     add_parser = subparsers.add_parser("add", help="Add a document and generate its tree.")
     add_parser.add_argument("--name", required=True, help="Stable document name used by later commands.")
@@ -76,10 +77,13 @@ def main() -> None:
     read_parser.add_argument("--max-chars", type=int, default=6000, help="Maximum characters per part.")
 
     args = parser.parse_args()
-    kb = KnowledgeBase(Path(args.kb).expanduser().resolve())
+    kb_root = Path(args.kb).expanduser().resolve()
+    if args.command == "init" and args.name:
+        kb_root = kb_root / _normalize_doc_name(args.name)
+    kb = KnowledgeBase(kb_root)
 
     if args.command == "init":
-        init_kb(kb)
+        init_kb(kb, name=args.name)
     elif args.command == "add":
         add_document(kb, name=args.name, source=args.source, model=args.model, force=args.force)
     elif args.command == "list":
@@ -90,13 +94,17 @@ def main() -> None:
         read_parts(kb, name=args.name, nodes=args.node, ranges=args.range, max_chars=args.max_chars)
 
 
-def init_kb(kb: KnowledgeBase) -> None:
+def init_kb(kb: KnowledgeBase, name: str | None = None) -> None:
     kb.root.mkdir(parents=True, exist_ok=True)
     kb.documents_dir.mkdir(parents=True, exist_ok=True)
     kb.trees_dir.mkdir(parents=True, exist_ok=True)
     kb.pageindex_workspace.mkdir(parents=True, exist_ok=True)
-    if not kb.registry_path.exists():
-        _save_registry(kb, {"version": 1, "documents": {}})
+    registry = _load_registry(kb)
+    if name:
+        registry["name"] = _normalize_doc_name(name)
+    elif "name" not in registry:
+        registry["name"] = kb.root.name
+    _save_registry(kb, registry)
     print(f"Initialized knowledge base: {kb.root}")
 
 
