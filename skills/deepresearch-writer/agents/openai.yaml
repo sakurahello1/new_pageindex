@@ -1,0 +1,4 @@
+interface:
+  display_name: "DeepResearch Writer"
+  short_description: "Run a source-backed deep research writing workflow."
+  default_prompt: "Use DeepResearch Writer to research a topic, build a local PageIndex knowledge base, draft a cited outline, delegate section drafts, and produce the final Markdown report."
