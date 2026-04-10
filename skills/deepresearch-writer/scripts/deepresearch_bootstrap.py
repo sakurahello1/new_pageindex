@@ -26,8 +26,8 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=10, help="Search results per source.")
     parser.add_argument("--from-date", default="2020-01-01", help="Earliest publication date, YYYY-MM-DD.")
     parser.add_argument("--to-date", default=None, help="Latest publication date, YYYY-MM-DD.")
-    parser.add_argument("--ingest-limit", type=int, default=3, help="Number of PDF results to ingest into the KB.")
-    parser.add_argument("--no-ingest", action="store_true", help="Only search and create Markdown scaffolding.")
+    parser.add_argument("--ingest-limit", type=int, default=0, help="Number of PDF results to ingest into the KB. Default 0 defers PDF ingestion.")
+    parser.add_argument("--no-ingest", action="store_true", help="Deprecated compatibility flag; same as --ingest-limit 0.")
     args = parser.parse_args()
 
     pageindex_root = _resolve_pageindex_root(args.pageindex_root)
@@ -40,6 +40,7 @@ def main() -> int:
 
     for path in [run_dir, sections_dir, trees_dir]:
         path.mkdir(parents=True, exist_ok=True)
+    _run_checked([sys.executable, str(kb_cli), "--kb", str(kb_dir), "init"], cwd=pageindex_root)
 
     _write_text(
         run_dir / "00_query.md",
@@ -51,6 +52,8 @@ def main() -> int:
                 f"- Source: {args.source}",
                 f"- Limit: {args.limit}",
                 f"- Date range: {args.from_date} to {args.to_date or 'today'}",
+                f"- KB: {kb_dir}",
+                f"- PDF ingestion limit: {0 if args.no_ingest else max(0, args.ingest_limit)}",
                 "",
             ]
         ),
@@ -59,13 +62,13 @@ def main() -> int:
     search_data = _run_search(kb_cli, args.query, args.source, args.limit, args.from_date, args.to_date)
     _write_text(run_dir / "01_search_results.md", _format_search_results(search_data))
 
-    candidates = _select_candidates(search_data, limit=0 if args.no_ingest else args.ingest_limit)
-    _write_text(run_dir / "02_selected_sources.md", _format_selected_sources(candidates, args.no_ingest))
+    pdf_candidates = _select_candidates(search_data, limit=None)
+    ingest_candidates = _select_candidates(search_data, limit=0 if args.no_ingest else max(0, args.ingest_limit))
+    _write_text(run_dir / "02_selected_sources.md", _format_selected_sources(pdf_candidates, no_ingest=args.no_ingest, ingest_limit=max(0, args.ingest_limit)))
 
     ingested: list[dict[str, Any]] = []
-    if candidates and not args.no_ingest:
-        _run_checked([sys.executable, str(kb_cli), "--kb", str(kb_dir), "init"], cwd=pageindex_root)
-        for idx, candidate in enumerate(candidates, start=1):
+    if ingest_candidates and not args.no_ingest:
+        for idx, candidate in enumerate(ingest_candidates, start=1):
             doc_name = _slugify(candidate["title"])[:40] or f"paper-{idx}"
             doc_name = f"{idx:02d}-{doc_name}".strip("-")
             add_cmd = [
@@ -109,9 +112,10 @@ def main() -> int:
                 record["error"] = (exc.stderr or exc.stdout or str(exc)).strip()
             ingested.append(record)
 
-    _write_text(run_dir / "03_outline.md", _format_outline(args.query, ingested or [{"candidate": c, "doc_name": "", "status": "not_ingested"} for c in candidates]))
-    _write_section_stubs(sections_dir, args.query, ingested)
-    _write_text(run_dir / "04_delegation_plan.md", _format_delegation_plan(ingested))
+    source_records = ingested or [{"candidate": c, "doc_name": "", "status": "candidate"} for c in pdf_candidates[: min(6, len(pdf_candidates))]]
+    _write_text(run_dir / "03_outline.md", _format_outline(args.query, source_records))
+    _write_section_stubs(sections_dir, args.query, source_records)
+    _write_text(run_dir / "04_delegation_plan.md", _format_delegation_plan(source_records))
     _write_text(run_dir / "05_review_notes.md", _format_review_notes())
     _write_text(run_dir / "final.md", _format_final_template(args.query))
 
@@ -119,8 +123,7 @@ def main() -> int:
     print(f"Search results: {run_dir / '01_search_results.md'}")
     print(f"Selected sources: {run_dir / '02_selected_sources.md'}")
     print(f"Outline: {run_dir / '03_outline.md'}")
-    if ingested:
-        print(f"KB: {kb_dir}")
+    print(f"KB: {kb_dir}")
     return 0
 
 
@@ -163,7 +166,9 @@ def _run_checked(cmd: list[str], *, cwd: Path) -> subprocess.CompletedProcess[st
     return subprocess.run(cmd, cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
-def _select_candidates(search_data: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
+def _select_candidates(search_data: dict[str, Any], *, limit: int | None) -> list[dict[str, Any]]:
+    if limit is not None and limit <= 0:
+        return []
     seen: set[str] = set()
     selected: list[dict[str, Any]] = []
     for source_name in ["arxiv", "openalex"]:
@@ -176,7 +181,7 @@ def _select_candidates(search_data: dict[str, Any], *, limit: int) -> list[dict[
                 continue
             seen.add(key)
             selected.append(paper)
-            if limit and len(selected) >= limit:
+            if limit is not None and len(selected) >= limit:
                 return selected
     return selected
 
@@ -214,11 +219,17 @@ def _format_search_results(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _format_selected_sources(candidates: list[dict[str, Any]], no_ingest: bool) -> str:
+def _format_selected_sources(candidates: list[dict[str, Any]], *, no_ingest: bool, ingest_limit: int) -> str:
     lines = ["# Selected Sources", ""]
-    if no_ingest:
-        lines.append("Ingestion disabled with `--no-ingest`.")
-        lines.append("")
+    if no_ingest or ingest_limit <= 0:
+        lines.extend(
+            [
+                "PDF ingestion is deferred for this run. The KB directory has been initialized; add documents later with `deepresearch_kb.py --kb <run>/kb add --name <doc-name> --source <pdf-url-or-path>`.",
+                "",
+            ]
+        )
+    else:
+        lines.extend([f"The first {ingest_limit} PDF-backed candidate(s) will be ingested during bootstrap.", ""])
     if not candidates:
         lines.append("No PDF-backed candidates selected.")
         return "\n".join(lines)
@@ -231,6 +242,7 @@ def _format_selected_sources(candidates: list[dict[str, Any]], no_ingest: bool) 
                 f"- Authors: {', '.join((paper.get('authors') or [])[:8])}",
                 f"- URL: {paper.get('url') or ''}",
                 f"- PDF: {paper.get('pdf_url') or ''}",
+                "- KB document name: TODO after ingestion",
                 "- Selection rationale: TODO",
                 "",
             ]
@@ -240,10 +252,12 @@ def _format_selected_sources(candidates: list[dict[str, Any]], no_ingest: bool) 
 
 def _format_outline(query: str, records: list[dict[str, Any]]) -> str:
     refs = []
-    for record in records:
+    for idx, record in enumerate(records, start=1):
         candidate = record.get("candidate", {})
-        label = record.get("doc_name") or candidate.get("title", "source")
-        refs.append(f"- {label}: {candidate.get('title', 'Untitled')} ({candidate.get('published_date') or 'unknown'})")
+        label = record.get("doc_name") or f"candidate-{idx}"
+        status = record.get("status") or "candidate"
+        tree_note = f"; tree: `{record['tree_path']}`" if record.get("tree_path") else "; tree/section IDs: TODO after ingestion"
+        refs.append(f"- {label}: {candidate.get('title', 'Untitled')} ({candidate.get('published_date') or 'unknown'}; {status}{tree_note})")
     ref_block = "\n".join(refs) if refs else "- TODO: add sources"
     return "\n".join(
         [
@@ -261,19 +275,19 @@ def _format_outline(query: str, records: list[dict[str, Any]]) -> str:
             "",
             "### 1. Background and Motivation",
             "- Purpose: TODO",
-            "- Required references: TODO document names + node IDs/page ranges",
+            "- Required KB references: TODO document names + section IDs, node IDs, or page ranges",
             "",
             "### 2. Main Findings",
             "- Purpose: TODO",
-            "- Required references: TODO document names + node IDs/page ranges",
+            "- Required KB references: TODO document names + section IDs, node IDs, or page ranges",
             "",
             "### 3. Methods and Evidence",
             "- Purpose: TODO",
-            "- Required references: TODO document names + node IDs/page ranges",
+            "- Required KB references: TODO document names + section IDs, node IDs, or page ranges",
             "",
             "### 4. Limitations and Open Questions",
             "- Purpose: TODO",
-            "- Required references: TODO document names + node IDs/page ranges",
+            "- Required KB references: TODO document names + section IDs, node IDs, or page ranges",
             "",
         ]
     )
@@ -327,21 +341,25 @@ def _format_delegation_plan(records: list[dict[str, Any]]) -> str:
             "- File: `sections/01-background-and-motivation.md`",
             "- Task: explain the problem setting and why the topic matters.",
             "- Required references: TODO choose document names + node IDs/page ranges.",
+            "- Prefer section IDs from `tree` output when available.",
             "",
             "### Main Findings",
             "- File: `sections/02-main-findings.md`",
             "- Task: synthesize the most important claims and findings.",
             "- Required references: TODO choose document names + node IDs/page ranges.",
+            "- Prefer section IDs from `tree` output when available.",
             "",
             "### Methods and Evidence",
             "- File: `sections/03-methods-and-evidence.md`",
             "- Task: compare methods, evidence, datasets, and evaluation results.",
             "- Required references: TODO choose document names + node IDs/page ranges.",
+            "- Prefer section IDs from `tree` output when available.",
             "",
             "### Limitations and Open Questions",
             "- File: `sections/04-limitations-and-open-questions.md`",
             "- Task: identify limitations, gaps, and unresolved questions.",
             "- Required references: TODO choose document names + node IDs/page ranges.",
+            "- Prefer section IDs from `tree` output when available.",
             "",
         ]
     )
@@ -349,9 +367,9 @@ def _format_delegation_plan(records: list[dict[str, Any]]) -> str:
 
 def _format_available_refs(records: list[dict[str, Any]]) -> str:
     lines: list[str] = []
-    for record in records:
+    for idx, record in enumerate(records, start=1):
         candidate = record.get("candidate", {})
-        doc_name = record.get("doc_name") or "not_ingested"
+        doc_name = record.get("doc_name") or f"candidate-{idx}"
         status = record.get("status") or "unknown"
         lines.append(f"- `{doc_name}` ({status}): {candidate.get('title', 'Untitled')}")
         if record.get("tree_path"):

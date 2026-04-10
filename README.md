@@ -100,11 +100,15 @@ Read one or more parts:
 
 ```bash
 python deepresearch_kb.py --kb ./kb read --name paper1 --node 0001 --node 0002
+python deepresearch_kb.py --kb ./kb read --name paper1 --section-id a1b2c3d4
 python deepresearch_kb.py --kb ./kb read --name paper1 --range 3-5 --range 12
 ```
 
 For PDF inputs, ranges are page numbers. For Markdown/TXT/Word inputs, ranges
 refer to line numbers in the normalized Markdown content.
+Tree output includes both the PageIndex node ID and a short stable section ID
+as `[node_id|section_id]`. Prefer `--section-id` or `--sid` when an LLM needs to
+revisit exact document sections across steps.
 
 Search literature from arXiv and OpenAlex:
 

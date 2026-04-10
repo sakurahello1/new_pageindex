@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -73,6 +74,7 @@ def main() -> None:
     read_parser = subparsers.add_parser("read", help="Read one or more document parts.")
     read_parser.add_argument("--name", required=True, help="Document name.")
     read_parser.add_argument("--node", action="append", default=[], help="Node id to read. Can be repeated.")
+    read_parser.add_argument("--section-id", "--sid", action="append", default=[], help="Short section id to read. Can be repeated.")
     read_parser.add_argument("--range", action="append", default=[], help="Page or line range, e.g. 3 or 3-5. Can be repeated.")
     read_parser.add_argument("--max-chars", type=int, default=6000, help="Maximum characters per part.")
 
@@ -99,7 +101,7 @@ def main() -> None:
     elif args.command == "tree":
         print_tree(kb, name=args.name, max_depth=args.max_depth, max_nodes=args.max_nodes)
     elif args.command == "read":
-        read_parts(kb, name=args.name, nodes=args.node, ranges=args.range, max_chars=args.max_chars)
+        read_parts(kb, name=args.name, nodes=args.node, section_ids=args.section_id, ranges=args.range, max_chars=args.max_chars)
     elif args.command == "search-lit":
         search_literature(
             query=args.query,
@@ -171,14 +173,16 @@ def print_tree(kb: KnowledgeBase, *, name: str, max_depth: int, max_nodes: int) 
     print(document.render_tree(max_depth=max_depth, max_nodes=max_nodes))
 
 
-def read_parts(kb: KnowledgeBase, *, name: str, nodes: list[str], ranges: list[str], max_chars: int) -> None:
-    if not nodes and not ranges:
-        raise SystemExit("Provide at least one --node or --range.")
+def read_parts(kb: KnowledgeBase, *, name: str, nodes: list[str], section_ids: list[str], ranges: list[str], max_chars: int) -> None:
+    if not nodes and not section_ids and not ranges:
+        raise SystemExit("Provide at least one --node, --section-id, or --range.")
     doc = _get_document(kb, name)
     document = PageIndexDocument.load(source_path=doc["source_path"], structure_path=doc["structure_path"])
     outputs: list[str] = []
     for node_id in nodes:
         outputs.append(_part_header(f"node {node_id}") + document.read_node(node_id=node_id, max_chars=max_chars))
+    for section_id in section_ids:
+        outputs.append(_part_header(f"section {section_id}") + document.read_node(node_id=section_id, max_chars=max_chars))
     for value in ranges:
         start, end = _parse_range(value)
         outputs.append(_part_header(f"range {start}-{end}") + document.read_pages(start, end, max_chars=max_chars))
@@ -359,6 +363,7 @@ def _build_document_tree(kb: KnowledgeBase, doc_name: str, source_path: Path, *,
     generated_tree = Path(record["structure_path"]).resolve()
     structure_path = kb.trees_dir / f"{doc_name}_structure.json"
     shutil.copy2(generated_tree, structure_path)
+    _assign_section_ids(structure_path, doc_name)
     metadata.update(record.get("metadata") or {})
     metadata["document_type"] = record.get("document_type") or metadata["document_type"]
     if suffix in {".txt", ".docx", ".doc"}:
@@ -494,6 +499,47 @@ def _build_markdown_tree(source_path: Path, structure_path: Path, title: str) ->
     payload = {"doc_name": title, "structure": _nest_heading_nodes(headings)}
     structure_path.parent.mkdir(parents=True, exist_ok=True)
     structure_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _assign_section_ids(structure_path, title)
+
+
+def _assign_section_ids(structure_path: Path, doc_name: str) -> None:
+    payload = json.loads(structure_path.read_text(encoding="utf-8"))
+    seen: set[str] = set()
+
+    def walk(nodes: list[dict[str, Any]], parents: list[str]) -> None:
+        for node in nodes:
+            title = str(node.get("title") or "Untitled")
+            seed = "|".join(
+                [
+                    doc_name,
+                    *parents,
+                    title,
+                    str(node.get("node_id") or ""),
+                    str(node.get("start_index") or ""),
+                    str(node.get("end_index") or ""),
+                ]
+            )
+            node["section_id"] = _short_section_id(seed, seen)
+            walk(node.get("nodes", []), parents + [title])
+
+    walk(payload.get("structure", []), [])
+    structure_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _short_section_id(seed: str, seen: set[str]) -> str:
+    digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()
+    for length in (8, 10, 12, 16, len(digest)):
+        section_id = digest[:length]
+        if section_id not in seen:
+            seen.add(section_id)
+            return section_id
+    counter = 1
+    while True:
+        section_id = f"{digest[:8]}{counter:x}"
+        if section_id not in seen:
+            seen.add(section_id)
+            return section_id
+        counter += 1
 
 
 def _nest_heading_nodes(headings: list[dict[str, Any]]) -> list[dict[str, Any]]:

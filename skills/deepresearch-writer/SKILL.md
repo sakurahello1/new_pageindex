@@ -20,15 +20,16 @@ python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<re
 Useful options:
 
 ```bash
-python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source arxiv --limit 10 --ingest-limit 3
-python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source openalex --from-date 2023-01-01 --no-ingest
+python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source arxiv --limit 10
+python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source openalex --from-date 2023-01-01
+python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source arxiv --ingest-limit 2
 python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --pageindex-root F:/DeepResearch/pageindex/PageIndex-main
 ```
 
 The script creates the Markdown run directory, runs literature search, records
-candidate sources, initializes the KB, ingests up to `--ingest-limit` PDF-backed
-papers unless `--no-ingest` is passed, saves source trees, and creates outline,
-review, and final-report templates.
+candidate sources, initializes an empty KB, and creates outline, review, and
+final-report templates. It does not ingest PDFs by default; pass
+`--ingest-limit N` only when the user explicitly wants bootstrap-time ingestion.
 
 ## Output Files
 
@@ -66,22 +67,23 @@ final report in Markdown. Do not store API keys or secrets.
    - Record title, authors, date, URL/PDF URL, and why each source was selected in `02_selected_sources.md`.
    - If there are too few good sources, run another focused search before drafting.
 4. Initialize and populate the KB:
-   - `python deepresearch_kb.py --kb research_runs/<slug>/kb init`
-   - For each selected PDF, run `add --name <short-name> --source <pdf-url-or-path>`.
+   - Bootstrap already runs `python deepresearch_kb.py --kb research_runs/<slug>/kb init`.
+   - For each selected PDF worth reading, run `add --name <short-name> --source <pdf-url-or-path>`.
    - Use short, stable document names. Prefer arXiv/OpenAlex PDF URLs when available.
 5. Inspect source structure:
    - Run `list` and `tree` for each selected document.
-   - Use `read --node` or `read --range` to extract the exact parts needed for the report.
+   - Tree output shows both the PageIndex node ID and a short stable `section_id` as `[node_id|section_id]`.
+   - Prefer `read --section-id <hash>` for precise extraction. Use `read --node` or `read --range` when section IDs are unavailable.
    - Store only relevant excerpts or concise notes in the section files; do not paste long copyrighted passages.
 6. Draft `03_outline.md`:
    - Include title, thesis, intended audience, and section list.
-   - For every section, include the document names and node IDs or page ranges it will cite.
+   - For every section, include the KB document names and exact section IDs, node IDs, or page ranges it will cite.
    - Do not create an outline section without at least one supporting source reference.
 7. Draft sections:
    - Use `04_delegation_plan.md` and the section stubs under `sections/`.
    - If the user explicitly asks for subagents/delegation/parallel work, delegate each section to a subagent with only its section brief, citation targets, and relevant excerpts.
    - If delegation is not explicitly allowed in the current conversation, draft sections locally.
-   - Each section draft must cite sources using a compact form such as `[doc_name node 0004]` or `[doc_name pp. 11-12]`.
+   - Each section draft must cite sources using a compact form such as `[doc_name sec a1b2c3d4]`, `[doc_name node 0004]`, or `[doc_name pp. 11-12]`.
    - Save each section as `sections/<section-slug>.md`.
 8. Review and integrate:
    - Check every claim has support in `03_outline.md`, selected sources, or extracted KB content.
@@ -109,7 +111,7 @@ python deepresearch_kb.py --kb research_runs/<slug>/kb init
 python deepresearch_kb.py --kb research_runs/<slug>/kb add --name paper-a --source https://arxiv.org/pdf/2510.24701
 python deepresearch_kb.py --kb research_runs/<slug>/kb list
 python deepresearch_kb.py --kb research_runs/<slug>/kb tree --name paper-a --max-depth 4 --max-nodes 120
-python deepresearch_kb.py --kb research_runs/<slug>/kb read --name paper-a --node 0004 --range 11-12 --max-chars 4000
+python deepresearch_kb.py --kb research_runs/<slug>/kb read --name paper-a --section-id a1b2c3d4 --range 11-12 --max-chars 4000
 ```
 
 ## Quality Bar

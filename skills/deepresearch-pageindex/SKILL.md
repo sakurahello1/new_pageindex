@@ -1,6 +1,6 @@
 ---
 name: deepresearch-pageindex
-description: Use when managing a local DeepResearch knowledge base backed by PageIndex trees, including initializing a KB, adding named PDF/URL/Markdown/text/Word documents, listing documents, viewing a document tree, or reading one or more document sections by node or range.
+description: Use when managing a local DeepResearch knowledge base backed by PageIndex trees, including initializing a KB, adding named PDF/URL/Markdown/text/Word documents, listing documents, viewing a document tree, or reading one or more document sections by short section id, node, or range.
 ---
 
 # DeepResearch PageIndex
@@ -49,13 +49,16 @@ Show one document tree:
 python deepresearch_kb.py --kb ./kb tree --name paper-a
 ```
 
-Read parts from a document. `--node` and `--range` can be repeated in the same command:
+Read parts from a document. `--section-id`/`--sid`, `--node`, and `--range` can be repeated in the same command:
 
 ```bash
-python deepresearch_kb.py --kb ./kb read --name paper-a --node 0001 --node 0003 --range 5-7 --max-chars 6000
+python deepresearch_kb.py --kb ./kb read --name paper-a --section-id a1b2c3d4 --node 0003 --range 5-7 --max-chars 6000
 ```
 
 For PDFs, ranges are pages. For Markdown/text/Word-derived documents, ranges are line numbers.
+Tree output includes both the PageIndex node ID and a short stable section ID
+as `[node_id|section_id]`. Prefer section IDs when an LLM needs to revisit exact
+document sections across steps.
 
 Search literature from arXiv and/or OpenAlex:
 

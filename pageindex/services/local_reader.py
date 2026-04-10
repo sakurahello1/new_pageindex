@@ -44,9 +44,11 @@ class PageIndexDocument:
                     return
                 start_ref, end_ref = _normalize_span(node, self.source_kind)
                 unit = "lines" if self.source_kind == "markdown" else "pages"
+                section_id = node.get("section_id")
+                id_label = f"{node.get('node_id', '----')}|{section_id}" if section_id else node.get("node_id", "----")
                 lines.append(
                     "  " * depth
-                    + f"- [{node.get('node_id', '----')}] {node.get('title', 'Untitled')} ({unit} {start_ref}-{end_ref})"
+                    + f"- [{id_label}] {node.get('title', 'Untitled')} ({unit} {start_ref}-{end_ref})"
                 )
                 count += 1
                 walk(node.get("nodes", []), depth + 1)
@@ -58,7 +60,7 @@ class PageIndexDocument:
 
     def get_node(self, node_id: str) -> dict[str, Any] | None:
         for node in self.iter_nodes():
-            if node.get("node_id") == node_id:
+            if node.get("node_id") == node_id or node.get("section_id") == node_id:
                 return node
         return None
 
@@ -72,6 +74,7 @@ class PageIndexDocument:
                 current["children"] = [
                     {
                         "node_id": child.get("node_id"),
+                        "section_id": child.get("section_id"),
                         "title": child.get("title"),
                         "start_index": child.get("start_index"),
                         "end_index": child.get("end_index"),
@@ -89,10 +92,11 @@ class PageIndexDocument:
         if not node:
             return f"Node {node_id} not found."
         start_ref, end_ref = _normalize_span(node, self.source_kind)
-        flat = next(item for item in self.iter_nodes() if item.get("node_id") == node_id)
+        flat = next(item for item in self.iter_nodes() if item.get("node_id") == node_id or item.get("section_id") == node_id)
         label = "lines" if self.source_kind == "markdown" else "pages"
         lines = [
             f"node_id: {node.get('node_id')}",
+            f"section_id: {node.get('section_id') or ''}",
             f"title: {node.get('title', 'Untitled')}",
             f"path: {flat['path']}",
             f"{label}: {start_ref}-{end_ref}",
@@ -102,8 +106,11 @@ class PageIndexDocument:
             lines.append("children:")
             for child in children:
                 child_start, child_end = _normalize_span(child, self.source_kind)
+                child_id = child.get("node_id", "----")
+                if child.get("section_id"):
+                    child_id = f"{child_id}|{child.get('section_id')}"
                 lines.append(
-                    f"- [{child.get('node_id', '----')}] {child.get('title', 'Untitled')} ({label} {child_start}-{child_end})"
+                    f"- [{child_id}] {child.get('title', 'Untitled')} ({label} {child_start}-{child_end})"
                 )
         else:
             lines.append("children: none")
@@ -115,11 +122,12 @@ class PageIndexDocument:
             return f"Node {node_id} not found."
         start_ref, end_ref = _normalize_span(node, self.source_kind)
         node_text = self.read_pages(start_ref, end_ref, max_chars=max_chars)
-        flat = next(item for item in self.iter_nodes() if item.get("node_id") == node_id)
+        flat = next(item for item in self.iter_nodes() if item.get("node_id") == node_id or item.get("section_id") == node_id)
         label = "lines" if self.source_kind == "markdown" else "pages"
         return "\n".join(
             [
                 f"node_id: {node.get('node_id')}",
+                f"section_id: {node.get('section_id') or ''}",
                 f"title: {node.get('title', 'Untitled')}",
                 f"path: {flat['path']}",
                 f"{label}: {start_ref}-{end_ref}",
