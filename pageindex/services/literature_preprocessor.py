@@ -58,6 +58,10 @@ PAPER_TEXT_SIGNALS = [
         r"\bconference\b",
         r"\bjournal\b",
         r"\bproceedings\b",
+        r"\bssrn\.com/abstract\b",
+        r"\bthis\s+draft\b",
+        r"\bnber\b",
+        r"\bworking\s+paper\b",
     ]
 ]
 
@@ -429,6 +433,10 @@ def _infer_heading_level(title: str, explicit_level: Any) -> int:
     numbered = re.match(r"^(?:section\s+)?(\d+(?:\.\d+)*)\b", title, re.IGNORECASE)
     if numbered:
         return min(numbered.group(1).count(".") + 1, 6)
+    if re.match(r"^[A-HJ-UWYZ]\.\s+\S+", title):
+        return 2
+    if re.match(r"^[IVXLCDM]+\.\s+\S+", title):
+        return 1
     appendix = re.match(r"^(?:appendix|附录)\s+[A-Z]", title, re.IGNORECASE)
     if appendix:
         return 1
@@ -440,12 +448,27 @@ def _infer_heading_level(title: str, explicit_level: Any) -> int:
 
 
 def _drop_document_title_heading(headings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if len(headings) < 2:
-        return headings
-    first, second = headings[0], headings[1]
-    if first["page"] == second["page"] and first["level"] <= second["level"] and len(first["title"]) > 20:
-        return headings[1:]
-    return headings
+    result = list(headings)
+    while len(result) >= 2:
+        first, second = result[0], result[1]
+        first_title = re.sub(r"[\W_]+", "", str(first.get("title", "")).lower())
+        second_title = re.sub(r"[\W_]+", "", str(second.get("title", "")).lower())
+        if first["page"] <= 2 and second["page"] <= 2 and first_title and first_title == second_title:
+            result = result[1:]
+            continue
+        if (
+            first["page"] <= 2
+            and second["page"] <= 2
+            and str(second.get("title", "")).strip().lower() in {"abstract", "摘要"}
+            and first_title
+        ):
+            result = result[1:]
+            continue
+        if first["page"] == second["page"] and first["level"] <= second["level"] and len(first["title"]) > 20:
+            result = result[1:]
+            continue
+        break
+    return result
 
 
 def _extract_document_title(extracted_dir: Path) -> str | None:
