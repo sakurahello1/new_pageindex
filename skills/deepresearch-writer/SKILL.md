@@ -6,30 +6,28 @@ description: "Use when Codex needs to run an end-to-end deep research writing wo
 # DeepResearch Writer
 
 Use this skill to produce a source-backed research report as Markdown files.
-Start with the bundled bootstrap script, then use the PageIndex KB CLI from the
-project root for deeper tree inspection and source extraction.
+Start with the bundled init script to create the run directory and empty KB,
+then search and ingest sources as separate later steps.
 
 ## Bootstrap Script
 
 Run this from the PageIndex project root:
 
 ```bash
-python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>"
+python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --name "<research run name>"
 ```
 
 Useful options:
 
 ```bash
-python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source arxiv --limit 10
-python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source openalex --from-date 2023-01-01
-python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --source arxiv --ingest-limit 2
-python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --query "<research query>" --pageindex-root F:/DeepResearch/pageindex/PageIndex-main
+python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --name "rag-survey" --query "multi-turn retrieval augmented generation"
+python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --name "rag-survey" --run-root F:/DeepResearch/runs
+python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --name "rag-survey" --pageindex-root F:/DeepResearch/pageindex/PageIndex-main
 ```
 
-The script creates the Markdown run directory, runs literature search, records
-candidate sources, initializes an empty KB, and creates outline, review, and
-final-report templates. It does not ingest PDFs by default; pass
-`--ingest-limit N` only when the user explicitly wants bootstrap-time ingestion.
+The script only creates the Markdown run directory, scaffolds the standard
+research files, and initializes an empty KB. It does not search literature and
+does not ingest PDFs; run search and `add` commands after init.
 
 ## Output Files
 
@@ -47,6 +45,7 @@ research_runs/<slug>/
   05_review_notes.md
   final.md
   kb/
+  notes/
 ```
 
 Use stable slugs from the research query. Keep all intermediate notes and the
@@ -54,9 +53,10 @@ final report in Markdown. Do not store API keys or secrets.
 
 ## Workflow
 
-1. Capture the query in `00_query.md`.
+1. Initialize the run:
+   - Run `python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --name "<run name>"`.
+   - If the query is already known, optionally pass `--query "<research query>"`; otherwise fill it in `00_query.md`.
 2. Search sources:
-   - Prefer running `scripts/deepresearch_bootstrap.py` first. Continue manually only if the script fails or the task needs custom selection.
    - Start with `python deepresearch_kb.py search-lit --source all --query "<2-3 key terms>" --limit 10`.
    - If the user specifies `arxiv` or `openalex`, pass `--source`.
    - Default date range is already 2020 onward; pass `--from-date` or `--to-date` only when the user asks or the topic needs it.
@@ -67,7 +67,7 @@ final report in Markdown. Do not store API keys or secrets.
    - Record title, authors, date, URL/PDF URL, and why each source was selected in `02_selected_sources.md`.
    - If there are too few good sources, run another focused search before drafting.
 4. Initialize and populate the KB:
-   - Bootstrap already runs `python deepresearch_kb.py --kb research_runs/<slug>/kb init`.
+   - The init script already runs `python deepresearch_kb.py --kb research_runs/<slug>/kb init`.
    - For each selected PDF worth reading, run `add --name <short-name> --source <pdf-url-or-path>`.
    - Use short, stable document names. Prefer arXiv/OpenAlex PDF URLs when available.
 5. Inspect source structure:
