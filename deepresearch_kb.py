@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from xml.etree import ElementTree
 
 import requests
@@ -76,6 +76,14 @@ def main() -> None:
     read_parser.add_argument("--range", action="append", default=[], help="Page or line range, e.g. 3 or 3-5. Can be repeated.")
     read_parser.add_argument("--max-chars", type=int, default=6000, help="Maximum characters per part.")
 
+    search_parser = subparsers.add_parser("search-lit", help="Search papers from arXiv and/or OpenAlex.")
+    search_parser.add_argument("--query", required=True, help="Search query. For arXiv, 2-3 keywords usually work best.")
+    search_parser.add_argument("--source", choices=["arxiv", "openalex", "all"], default="all", help="Literature source to query.")
+    search_parser.add_argument("--limit", type=int, default=10, help="Maximum results to return per selected source.")
+    search_parser.add_argument("--from-date", default="2020-01-01", help="Earliest publication date, YYYY-MM-DD. Default: 2020-01-01.")
+    search_parser.add_argument("--to-date", default=None, help="Latest publication date, YYYY-MM-DD. Default: today.")
+    search_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
     args = parser.parse_args()
     kb_root = Path(args.kb).expanduser().resolve()
     if args.command == "init" and args.name:
@@ -92,6 +100,15 @@ def main() -> None:
         print_tree(kb, name=args.name, max_depth=args.max_depth, max_nodes=args.max_nodes)
     elif args.command == "read":
         read_parts(kb, name=args.name, nodes=args.node, ranges=args.range, max_chars=args.max_chars)
+    elif args.command == "search-lit":
+        search_literature(
+            query=args.query,
+            source=args.source,
+            limit=args.limit,
+            from_date=args.from_date,
+            to_date=args.to_date,
+            as_json=args.json,
+        )
 
 
 def init_kb(kb: KnowledgeBase, name: str | None = None) -> None:
@@ -166,6 +183,157 @@ def read_parts(kb: KnowledgeBase, *, name: str, nodes: list[str], ranges: list[s
         start, end = _parse_range(value)
         outputs.append(_part_header(f"range {start}-{end}") + document.read_pages(start, end, max_chars=max_chars))
     print("\n\n".join(outputs))
+
+
+def search_literature(*, query: str, source: str, limit: int, from_date: str, to_date: str | None, as_json: bool) -> None:
+    clean_query = " ".join(str(query or "").split())
+    if not clean_query:
+        raise SystemExit("--query cannot be empty.")
+    if limit < 1:
+        raise SystemExit("--limit must be >= 1.")
+    start_date = _parse_date_yyyy_mm_dd(from_date, "--from-date")
+    end_date = _parse_date_yyyy_mm_dd(to_date, "--to-date") if to_date else datetime.now(timezone.utc).date().isoformat()
+
+    arxiv_terms = _query_terms(clean_query)
+    if source == "arxiv" and len(arxiv_terms) > 3:
+        raise SystemExit("arXiv search works best with 2-3 keywords. Shorten --query and retry.")
+
+    sources = ["arxiv", "openalex"] if source == "all" else [source]
+    results: dict[str, list[dict[str, Any]]] = {}
+    warnings: dict[str, str] = {}
+    for item in sources:
+        if item == "arxiv":
+            if len(arxiv_terms) > 3:
+                results[item] = []
+                warnings[item] = "Skipped: arXiv search works best with 2-3 keywords. Shorten --query to search arXiv."
+            else:
+                results[item] = _search_arxiv(clean_query, limit=limit, from_date=start_date, to_date=end_date)
+        elif item == "openalex":
+            results[item] = _search_openalex(clean_query, limit=limit, from_date=start_date, to_date=end_date)
+
+    if as_json:
+        print(json.dumps({"query": clean_query, "from_date": start_date, "to_date": end_date, "warnings": warnings, "results": results}, ensure_ascii=False, indent=2))
+        return
+
+    for source_name, papers in results.items():
+        print(f"===== {source_name} ({len(papers)} results) =====")
+        if source_name in warnings:
+            print(warnings[source_name])
+            print()
+            continue
+        if not papers:
+            print("No results.")
+            if source_name == "arxiv":
+                print("Tip: arXiv often returns 0 results when the query is too broad or too long; use 2-3 keywords.")
+            continue
+        for idx, paper in enumerate(papers, start=1):
+            authors = ", ".join(paper.get("authors", [])[:4])
+            if len(paper.get("authors", [])) > 4:
+                authors += ", et al."
+            print(f"{idx}. {paper.get('title', 'Untitled')}")
+            print(f"   date: {paper.get('published_date') or 'unknown'}")
+            if authors:
+                print(f"   authors: {authors}")
+            if paper.get("url"):
+                print(f"   url: {paper['url']}")
+            if paper.get("pdf_url"):
+                print(f"   pdf: {paper['pdf_url']}")
+            print()
+
+
+def _search_arxiv(query: str, *, limit: int, from_date: str, to_date: str) -> list[dict[str, Any]]:
+    terms = _query_terms(query)
+    search_terms = " AND ".join(f'all:"{term}"' for term in terms)
+    date_filter = f"submittedDate:[{from_date.replace('-', '')}0000 TO {to_date.replace('-', '')}2359]"
+    params = urlencode(
+        {
+            "search_query": f"{search_terms} AND {date_filter}",
+            "start": 0,
+            "max_results": limit,
+            "sortBy": "submittedDate",
+            "sortOrder": "descending",
+        }
+    )
+    response = requests.get(f"https://export.arxiv.org/api/query?{params}", timeout=60)
+    response.raise_for_status()
+    root = ElementTree.fromstring(response.content)
+    ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+    papers: list[dict[str, Any]] = []
+    for entry in root.findall("atom:entry", ns):
+        title = _compact_text(entry.findtext("atom:title", default="", namespaces=ns))
+        published = entry.findtext("atom:published", default="", namespaces=ns)[:10]
+        authors = [
+            _compact_text(author.findtext("atom:name", default="", namespaces=ns))
+            for author in entry.findall("atom:author", ns)
+        ]
+        links = entry.findall("atom:link", ns)
+        url = entry.findtext("atom:id", default="", namespaces=ns)
+        pdf_url = ""
+        for link in links:
+            if link.attrib.get("title") == "pdf" or link.attrib.get("type") == "application/pdf":
+                pdf_url = link.attrib.get("href", "")
+                break
+        papers.append(
+            {
+                "source": "arxiv",
+                "title": title,
+                "authors": [author for author in authors if author],
+                "published_date": published,
+                "url": url,
+                "pdf_url": pdf_url,
+                "summary": _compact_text(entry.findtext("atom:summary", default="", namespaces=ns)),
+            }
+        )
+    return papers
+
+
+def _query_terms(query: str) -> list[str]:
+    return [term for term in re.split(r"\s+", query.strip()) if term]
+
+
+def _search_openalex(query: str, *, limit: int, from_date: str, to_date: str) -> list[dict[str, Any]]:
+    params = urlencode(
+        {
+            "filter": f"from_publication_date:{from_date},to_publication_date:{to_date},title_and_abstract.search:{query}",
+            "per-page": min(limit, 200),
+        }
+    )
+    response = requests.get(f"https://api.openalex.org/works?{params}", timeout=60)
+    response.raise_for_status()
+    data = response.json()
+    papers: list[dict[str, Any]] = []
+    for item in data.get("results", [])[:limit]:
+        authors = [
+            authorship.get("author", {}).get("display_name", "")
+            for authorship in item.get("authorships", [])
+        ]
+        primary_location = item.get("primary_location") or {}
+        landing_page_url = primary_location.get("landing_page_url") or item.get("doi") or item.get("id", "")
+        pdf_url = primary_location.get("pdf_url") or ""
+        papers.append(
+            {
+                "source": "openalex",
+                "title": item.get("display_name", ""),
+                "authors": [author for author in authors if author],
+                "published_date": item.get("publication_date", ""),
+                "url": landing_page_url,
+                "pdf_url": pdf_url,
+                "doi": item.get("doi"),
+                "cited_by_count": item.get("cited_by_count"),
+            }
+        )
+    return papers
+
+
+def _parse_date_yyyy_mm_dd(value: str, label: str) -> str:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+    except ValueError as exc:
+        raise SystemExit(f"{label} must use YYYY-MM-DD format.") from exc
+
+
+def _compact_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value or "").strip()
 
 
 def _build_document_tree(kb: KnowledgeBase, doc_name: str, source_path: Path, *, model: str | None, force: bool) -> tuple[Path, Path, dict[str, Any]]:

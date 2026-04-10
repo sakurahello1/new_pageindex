@@ -57,6 +57,18 @@ python deepresearch_kb.py --kb ./kb read --name paper-a --node 0001 --node 0003 
 
 For PDFs, ranges are pages. For Markdown/text/Word-derived documents, ranges are line numbers.
 
+Search literature from arXiv and/or OpenAlex:
+
+```bash
+python deepresearch_kb.py search-lit --query "retrieval augmented generation"
+python deepresearch_kb.py search-lit --source arxiv --query "multi turn rag" --limit 10
+python deepresearch_kb.py search-lit --source openalex --query "long term memory agents" --from-date 2023-01-01
+```
+
+Search defaults: `--source all`, `--limit 10`, and `--from-date 2020-01-01`.
+For arXiv, prefer 2-3 keywords; long `--source arxiv` queries are rejected with
+a reminder, while `--source all` skips arXiv and still queries OpenAlex.
+
 ## Notes
 
 - PDF tree generation uses PageIndex. Detected paper PDFs try MinerU heading extraction first; detected Chinese patent PDFs use the patent section preprocessor.

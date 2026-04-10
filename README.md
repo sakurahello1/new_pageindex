@@ -106,6 +106,20 @@ python deepresearch_kb.py --kb ./kb read --name paper1 --range 3-5 --range 12
 For PDF inputs, ranges are page numbers. For Markdown/TXT/Word inputs, ranges
 refer to line numbers in the normalized Markdown content.
 
+Search literature from arXiv and OpenAlex:
+
+```bash
+python deepresearch_kb.py search-lit --query "retrieval augmented generation"
+python deepresearch_kb.py search-lit --source arxiv --query "multi turn rag" --limit 10
+python deepresearch_kb.py search-lit --source openalex --query "long term memory agents" --from-date 2023-01-01 --to-date 2026-04-10
+```
+
+`search-lit` defaults to `--source all`, `--limit 10`, and
+`--from-date 2020-01-01`. For arXiv, use 2-3 keywords when possible; overly
+long `--source arxiv` queries are rejected with a reminder to shorten the query.
+When `--source all` is used, the CLI skips arXiv for overlong queries and still
+queries OpenAlex.
+
 ## Direct PageIndex Usage
 
 You can still call the PageIndex tree generator directly:
