@@ -9,6 +9,10 @@ Use this skill to produce a source-backed research report as Markdown files.
 Start with the bundled init script to create the run directory and empty KB,
 then search and ingest sources as separate later steps.
 
+This skill depends on `deepresearch-pageindex` for KB operations. Use the
+PageIndex KB CLI documented there whenever initializing, searching, adding
+documents, listing trees, or reading document sections.
+
 ## Bootstrap Script
 
 Run this from the PageIndex project root:
@@ -68,6 +72,7 @@ final report in Markdown. Do not store API keys or secrets.
    - If there are too few good sources, run another focused search before drafting.
 4. Initialize and populate the KB:
    - The init script already runs `python deepresearch_kb.py --kb research_runs/<slug>/kb init`.
+   - Treat these KB commands as the `deepresearch-pageindex` layer of the workflow.
    - For each selected PDF worth reading, run `add --name <short-name> --source <pdf-url-or-path>`.
    - Use short, stable document names. Prefer arXiv/OpenAlex PDF URLs when available.
 5. Inspect source structure:
