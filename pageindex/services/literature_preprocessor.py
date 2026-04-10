@@ -143,6 +143,7 @@ def prepare_literature_structure(
     if not headings:
         return None
 
+    headings = _adjust_appendix_heading_levels(headings)
     page_count = _get_pdf_page_count(pdf)
     doc_title = _extract_document_title(extracted_dir) or pdf.name
     structure = _build_structure_from_headings(headings=headings, page_count=page_count)
@@ -469,6 +470,26 @@ def _drop_document_title_heading(headings: list[dict[str, Any]]) -> list[dict[st
             continue
         break
     return result
+
+
+def _adjust_appendix_heading_levels(headings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    adjusted: list[dict[str, Any]] = []
+    in_appendix = False
+    current_appendix_level: int | None = None
+    for item in headings:
+        heading = dict(item)
+        title = str(heading.get("title", "")).strip()
+        if re.match(r"^(appendix|internet appendix)\b", title, re.IGNORECASE):
+            in_appendix = True
+            current_appendix_level = None
+            heading["level"] = 1
+        elif in_appendix and re.match(r"^[A-Z]\.\s+\S+", title):
+            current_appendix_level = 2
+            heading["level"] = 2
+        elif in_appendix and current_appendix_level is not None and int(heading.get("level", 1)) <= current_appendix_level:
+            heading["level"] = min(current_appendix_level + 1, 6)
+        adjusted.append(heading)
+    return adjusted
 
 
 def _extract_document_title(extracted_dir: Path) -> str | None:
