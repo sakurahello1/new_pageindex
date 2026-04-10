@@ -434,6 +434,8 @@ def _infer_heading_level(title: str, explicit_level: Any) -> int:
     numbered = re.match(r"^(?:section\s+)?(\d+(?:\.\d+)*)\b", title, re.IGNORECASE)
     if numbered:
         return min(numbered.group(1).count(".") + 1, 6)
+    if re.match(r"^[A-Z]\.\d+(?:\.\d+)*\s+\S+", title):
+        return 2
     if re.match(r"^[A-HJ-UWYZ]\.\s+\S+", title):
         return 2
     if re.match(r"^[IVXLCDM]+\.\s+\S+", title):
