@@ -19,11 +19,10 @@ def main() -> int:
     parser.add_argument("--name", required=True, help="Research run and knowledge-base name.")
     parser.add_argument("--query", default="", help="Optional research query note. Literature search is not run during init.")
     parser.add_argument("--run-root", default="research_runs", help="Directory where research runs are stored.")
-    parser.add_argument("--pageindex-root", default=None, help="Directory containing deepresearch_kb.py. Defaults to cwd or PAGEINDEX_ROOT.")
+    parser.add_argument("--pageindex-root", default=None, help="PageIndex repo root or deepresearch-pageindex scripts directory. Defaults to sibling skill, cwd, or PAGEINDEX_ROOT.")
     args = parser.parse_args()
 
-    pageindex_root = _resolve_pageindex_root(args.pageindex_root)
-    kb_cli = pageindex_root / "deepresearch_kb.py"
+    kb_cli = _resolve_kb_cli(args.pageindex_root)
     slug = _slugify(args.name)
     run_dir = Path(args.run_root).expanduser().resolve() / slug
     sections_dir = run_dir / "sections"
@@ -33,7 +32,7 @@ def main() -> int:
 
     for path in [run_dir, sections_dir, trees_dir, notes_dir]:
         path.mkdir(parents=True, exist_ok=True)
-    _run_checked([sys.executable, str(kb_cli), "--kb", str(kb_dir), "init"], cwd=pageindex_root)
+    _run_checked([sys.executable, str(kb_cli), "--kb", str(kb_dir), "init"], cwd=kb_cli.parent)
 
     _write_text(
         run_dir / "00_query.md",
@@ -59,7 +58,7 @@ def main() -> int:
                 "Run literature search after init, then record commands and raw candidates here.",
                 "",
                 "```bash",
-                "python deepresearch_kb.py search-lit --source all --query \"<2-3 key terms>\" --limit 10",
+                f"python \"{kb_cli}\" search-lit --source all --query \"<2-3 key terms>\" --limit 10",
                 "```",
                 "",
             ]
@@ -95,18 +94,39 @@ def main() -> int:
     return 0
 
 
-def _resolve_pageindex_root(value: str | None) -> Path:
+def _resolve_kb_cli(value: str | None) -> Path:
     candidates: list[Path] = []
     if value:
-        candidates.append(Path(value).expanduser().resolve())
+        base = Path(value).expanduser().resolve()
+        candidates.extend([base / "deepresearch_kb.py", base / "scripts" / "deepresearch_kb.py"])
     env_root = __import__("os").environ.get("PAGEINDEX_ROOT")
     if env_root:
-        candidates.append(Path(env_root).expanduser().resolve())
-    candidates.append(Path.cwd().resolve())
+        base = Path(env_root).expanduser().resolve()
+        candidates.extend([base / "deepresearch_kb.py", base / "scripts" / "deepresearch_kb.py"])
+    script_path = Path(__file__).resolve()
+    for parent in script_path.parents:
+        candidates.extend(
+            [
+                parent / "deepresearch-pageindex" / "scripts" / "deepresearch_kb.py",
+                parent / "skills" / "deepresearch-pageindex" / "scripts" / "deepresearch_kb.py",
+                parent / "deepresearch_kb.py",
+            ]
+        )
+    cwd = Path.cwd().resolve()
+    candidates.extend(
+        [
+            cwd / "skills" / "deepresearch-pageindex" / "scripts" / "deepresearch_kb.py",
+            cwd / "deepresearch_kb.py",
+        ]
+    )
+    seen: set[Path] = set()
     for candidate in candidates:
-        if (candidate / "deepresearch_kb.py").exists():
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.exists():
             return candidate
-    raise SystemExit("Could not find deepresearch_kb.py. Run from the PageIndex repo or pass --pageindex-root.")
+    raise SystemExit("Could not find deepresearch_kb.py. Install deepresearch-pageindex scripts, run from the PageIndex repo, or pass --pageindex-root.")
 
 
 def _run_checked(cmd: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:

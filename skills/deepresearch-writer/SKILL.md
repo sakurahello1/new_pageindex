@@ -61,7 +61,7 @@ final report in Markdown. Do not store API keys or secrets.
    - Run `python skills/deepresearch-writer/scripts/deepresearch_bootstrap.py --name "<run name>"`.
    - If the query is already known, optionally pass `--query "<research query>"`; otherwise fill it in `00_query.md`.
 2. Search sources:
-   - Start with `python deepresearch_kb.py search-lit --source all --query "<2-3 key terms>" --limit 10`.
+   - Start with `python skills/deepresearch-pageindex/scripts/deepresearch_kb.py search-lit --source all --query "<2-3 key terms>" --limit 10`.
    - If the user specifies `arxiv` or `openalex`, pass `--source`.
    - Default date range is already 2020 onward; pass `--from-date` or `--to-date` only when the user asks or the topic needs it.
    - For arXiv, use 2-3 keywords. If more terms are needed, run multiple short arXiv searches rather than one long query.
@@ -71,7 +71,7 @@ final report in Markdown. Do not store API keys or secrets.
    - Record title, authors, date, URL/PDF URL, and why each source was selected in `02_selected_sources.md`.
    - If there are too few good sources, run another focused search before drafting.
 4. Initialize and populate the KB:
-   - The init script already runs `python deepresearch_kb.py --kb research_runs/<slug>/kb init`.
+   - The init script already runs `python skills/deepresearch-pageindex/scripts/deepresearch_kb.py --kb research_runs/<slug>/kb init`.
    - Treat these KB commands as the `deepresearch-pageindex` layer of the workflow.
    - For each selected PDF worth reading, run `add --name <short-name> --source <pdf-url-or-path>`.
    - Use short, stable document names. Prefer arXiv/OpenAlex PDF URLs when available.
@@ -104,19 +104,19 @@ final report in Markdown. Do not store API keys or secrets.
 Search literature:
 
 ```bash
-python deepresearch_kb.py search-lit --query "retrieval augmented generation"
-python deepresearch_kb.py search-lit --source arxiv --query "multi turn rag" --limit 10
-python deepresearch_kb.py search-lit --source openalex --query "long term memory agents" --from-date 2023-01-01
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py search-lit --query "retrieval augmented generation"
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py search-lit --source arxiv --query "multi turn rag" --limit 10
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py search-lit --source openalex --query "long term memory agents" --from-date 2023-01-01
 ```
 
 Build and inspect a KB:
 
 ```bash
-python deepresearch_kb.py --kb research_runs/<slug>/kb init
-python deepresearch_kb.py --kb research_runs/<slug>/kb add --name paper-a --source https://arxiv.org/pdf/2510.24701
-python deepresearch_kb.py --kb research_runs/<slug>/kb list
-python deepresearch_kb.py --kb research_runs/<slug>/kb tree --name paper-a --max-depth 4 --max-nodes 120
-python deepresearch_kb.py --kb research_runs/<slug>/kb read --name paper-a --section-id a1b2c3d4 --range 11-12 --max-chars 4000
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py --kb research_runs/<slug>/kb init
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py --kb research_runs/<slug>/kb add --name paper-a --source https://arxiv.org/pdf/2510.24701
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py --kb research_runs/<slug>/kb list
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py --kb research_runs/<slug>/kb tree --name paper-a --max-depth 4 --max-nodes 120
+python skills/deepresearch-pageindex/scripts/deepresearch_kb.py --kb research_runs/<slug>/kb read --name paper-a --section-id a1b2c3d4 --range 11-12 --max-chars 4000
 ```
 
 ## Quality Bar
